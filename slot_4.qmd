@@ -1,0 +1,485 @@
+---
+title: "Spatial Workshop at Kelantan State Health Department"
+author: "Dr Afiq Amsyar"
+format:
+  html:
+    toc: true
+    toc-location: left
+    theme: 
+      light: cosmo
+      dark: 
+        - cosmo
+        - theme-dark.scss
+    grid:
+      sidebar-width: 300px
+      margin-width: 300px
+      body-width: 900px
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+  docx: 
+    toc: true
+    toc-depth: 2
+self-contained: true
+---
+
+# Spatial Workshop at Kelantan State Health Department
+
+## Trend, Incidence, Choropleth Map and Spatial Autocorrelation
+
+## **1.0 Prepare environment**
+
+```{r}
+install.packages("sf")
+install.packages("tidyverse")
+install.packages("janitor")
+install.packages("gtsummary")
+install.packages("DT")
+install.packages("stringr")
+install.packages("readxl")
+install.packagas("broom")
+install.packages("tmap")
+install.packages("mapview")
+install.packages("lubridate")
+install.packages("gganimate")
+install.packages("spdep")
+
+```
+
+```{r}
+library(sf)
+library(tidyverse)
+library(janitor)
+library(gtsummary)
+library(DT)
+library(stringr)
+library(readxl)
+library(broom)
+library(tmap)
+library(mapview)
+library(lubridate)
+library(gganimate)
+library(spdep)
+```
+
+## **2.0 Load Data**
+
+### 2.1 Base Map / Polygon Data
+
+```{r}
+kel <- st_read("kelantan.shp")
+```
+
+### 2.2 Population Data
+
+```{r}
+kel_mukim <- read_xlsx("pop_kel.xlsx")
+kel_mukim %>% datatable()
+```
+
+### 2.3 Merging population data to polygon
+
+```{r}
+kel_map <- merge(kel,kel_mukim,by.x="MUKIM", by.y="MUKIM", all.x=T, sort=F)
+```
+
+## 3.0 Plot Kelantan Map
+
+```{r}
+st_geometry(kel_map)
+```
+
+### 3.1a Kelantan according to Mukim
+
+```{r}
+plot(kel_map[,1]) # Mukim
+```
+
+### 3.1b Interactive Map
+
+```{r}
+mapview(kel_map[,1])
+```
+
+### 3.2 Map the population
+
+```{r}
+kel_map %>% ggplot() + 
+  geom_sf(aes(fill = JUM_JANTIN)) + 
+  ggtitle('Population of Kelantan') + 
+  theme_bw()
+
+mapView(kel_map, zcol = "JUM_JANTIN", layer.name = "Population", popup = kel_map$MUKIM)
+```
+
+## 4.0 Leptospirosis Data
+
+```{r}
+lepto <- read_xlsx("leptospirosis.xlsx") %>% clean_names()
+glimpse(lepto)
+```
+
+### **4.1 Convert Leptospirosis data to spatial data**
+
+Use st_as_sf ( ) function to convert line listing data that contained Lat/Long attributes to spatial object
+
+```{r}
+lepto <- st_as_sf(lepto, 
+                    coords = c("longitude_wgs", "latitude_wgs"), 
+                    crs = 4326)
+lepto %>% datatable()
+```
+
+Now, Leptospirosis data will be completed with geometry data for each row/case.
+
+Confirm CRS is wgs84
+
+```{r}
+st_crs(lepto)
+```
+
+### **4.2 Convert shapefile to RSO to match with Kelantan Map**
+
+```{r}
+lepto_2 <- st_transform(lepto, 3168)
+lepto_2 %>% datatable()
+```
+
+### 4.3 Plot map to see outlier
+
+```{r}
+ggplot() +
+  geom_sf(data = lepto_2) +
+  ggtitle("Map of Leptospirosis") +
+  theme_bw()
+```
+
+### 4.4 Select point only in Kelantan (all_kel)
+
+```{r}
+all_kel <- lepto_2 %>% 
+  mutate(within_kel_map = lengths(st_within(lepto_2, kel_map)))
+all_kel2 <- all_kel %>% 
+  filter(within_kel_map == 1)
+```
+
+## 5.0 Plot the Cases
+
+### 5.1 Overall Plot
+
+```{r}
+overall_plot <- ggplot() +
+  geom_sf(data = kel) +   #base map
+  geom_sf(data = all_kel2, color = "black", size = 0.5) +  #cases in spatial data
+  ggtitle("Map of Leptospirosis Cases in Kelantan for 2016-2022") +
+  theme_bw() +  
+  theme(plot.title = element_text(size = 12),  strip.text = element_text(size = 12)) # cosmetic
+
+overall_plot 
+```
+
+### 5.1a Plot yearly Leptospirosis Cases
+
+```{r}
+overall_plot + 
+  facet_wrap(~tahun_daftar) + #to plot according to year
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, vjust = 0.5)) +
+  theme(plot.title = element_text(size = 12),  strip.text = element_text(size = 12)) +
+  ggtitle("Map of Leptospirosis Cases in Kelantan for 2016-2022")
+```
+
+### 5.1b Plot Leptospirosis Cases according to districts
+
+```{r}
+overall_plot + 
+  facet_wrap(~daerah) + #to plot according to daerah
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, vjust = 0.5)) +
+  theme(plot.title = element_text(size = 12),  strip.text = element_text(size = 12)) +
+  ggtitle("Map of Leptospirosis Cases in Kelantan for 2016-2022")
+```
+
+### 5.2a Animation of yearly Leptopirosis cases
+
+```{r}
+overall_plot_animate <- ggplot() +
+  geom_sf(data = kel) +   # base map
+  geom_sf(data = all_kel2, color = "red") +  # cases in spatial data
+  ggtitle("Map of Leptospirosis Cases in Kelantan for 2016-2022") +
+  theme_bw() +  
+  theme(plot.title = element_text(size = 12), 
+        strip.text = element_text(size = 12)) + 
+  transition_time(tahun_daftar) +  # animate over the year'tahun_daftar')
+  labs(subtitle = "Year: {frame_time}")  # display the current year in the animation
+
+# To animate the plot
+animate(overall_plot_animate, nframes = 7, fps = 1)
+```
+
+### 5.2b Animation of Leptopirosis cases according to Districts
+
+```{r}
+overall_plot_animate_district <- ggplot() +
+  geom_sf(data = kel) +   # base map
+  geom_sf(data = all_kel2, color = "red") +  # cases in spatial data
+  ggtitle("Map of Leptospirosis Cases in Kelantan for 2016-2022") +
+  theme_bw() +  
+  theme(plot.title = element_text(size = 12), 
+        strip.text = element_text(size = 12)) + 
+  transition_states(daerah, transition_length = 2, state_length = 1) +  # animate over the daerah (districts)
+  labs(subtitle = "Daerah: {closest_state}")  # display the current daerah in the animation
+
+# To animate the plot
+animate(overall_plot_animate_district, nframes = 10, fps = 1)
+```
+
+## 6.0 Trend of cases
+
+### 6.1 Yearly Trend
+
+```{r}
+lepto_year <- all_kel2 %>% 
+  group_by(tahun_daftar) %>% 
+  count() %>% 
+  print(n = 7)
+```
+
+```{r}
+ggplot(lepto_year, aes(x=tahun_daftar, y=n)) +
+  geom_line(size = 1) +
+  labs(x="Year", y="Number of Cases ", title="Yearly Leptospirosis Cases (2016-2022)") +
+ theme_bw()
+```
+
+### 6.2 Weekly Trend
+
+```{r}
+lep_week <- all_kel2 %>% 
+  group_by(tahun_daftar, epid_daftar) %>% 
+  count() %>% 
+  print(n = 52)
+```
+
+```{r}
+ggplot(lep_week, aes(x=epid_daftar, y=n, group=tahun_daftar, color = as.factor(tahun_daftar))) +
+  geom_line(size = 0.8) +
+  labs(x="Epid Week", y="Number of Cases", title="Leptospirosis according to Epid Week and Year", color="Year") +
+  scale_color_brewer(palette="Set2") + 
+  scale_y_continuous(labels=function(x) format(x, digits=1, nsmall=0)) +
+ theme_bw()
+```
+
+```{r}
+ggplot(lep_week %>% filter(tahun_daftar == "2022"), 
+       aes(x=epid_daftar, y=n)) +
+  geom_line(size = 0.8, color = "blue") +
+  labs(x="Epid Week", y="Number of Cases", title= " Leptopsirosis in 2022") +
+  scale_color_brewer(palette="Set2") + 
+  scale_y_continuous(labels=function(x) format(x, digits=1, nsmall=0)) +
+  theme_bw()
+```
+
+### 6.3 Animation of weekly Leptopirosis cases in 2022
+
+```{r}
+ggplot(lep_week %>% filter(tahun_daftar == "2022"), 
+       aes(x = epid_daftar, y = n)) +
+  geom_line(size = 0.8, color = "blue") +
+  labs(x = "Epid Week", y = "Number of Cases", title = "Leptospirosis in 2022") +
+  scale_y_continuous(labels = function(x) format(x, digits = 1, nsmall = 0)) +
+  theme_bw() +
+  transition_reveal(epid_daftar)  # Animate based on 'epid_daftar' (epidemiological week)
+
+```
+
+## 7.0 Aggregated Data
+
+For this exercise, we focus our analysis on Leptospirosis cases reported in 2016 only.
+
+```{r}
+lepto_16 <- lepto_2 %>% filter(tahun_daftar == "2016")
+```
+
+### 7.1 Joint point to polygon
+
+```{r}
+#lepto density per mukim
+lepto_muk <- st_join(lepto_16, kel_map, 
+                      join = st_within)
+glimpse(lepto_muk)
+```
+
+### 7.2 Count all leptospirosis cases for each mukim in 2016
+
+```{r}
+count_lep_mukim_yr <- lepto_muk %>% 
+  count(DAERAH, MUKIM, tahun_daftar,average) %>% 
+  ungroup()
+count_lep_mukim_yr %>% datatable()
+```
+
+### 7.3 Calculate incidence of leptospirosis per 1000 population for mukim in 2016
+
+```{r}
+count_lep_muk_y_1000 <- count_lep_mukim_yr %>% 
+  mutate(incidence_lep = (n/average)*1000)
+count_lep_muk_y_1000 %>% datatable()
+```
+
+## 8.0 Plot incidence map Leptospirosis reported in 2016
+
+### 8.1 Joining the incidence data to basemap of Kelantan
+
+```{r}
+kelmap_with_lep <- st_join(kel_map, count_lep_muk_y_1000)
+```
+
+### 8.2 Map the count of cases in 2016 for each Mukim
+
+```{r}
+kelmap_with_lep %>% ggplot() + 
+  geom_sf(aes(fill = n)) +
+  ggtitle('Count of Leptospirosis 2016') + 
+  theme_bw() 
+
+# Create a custom popup with multiple fields
+popup_info <- paste0(
+  "<strong>MUKIM: </strong>", kelmap_with_lep$MUKIM.x, "<br>",
+  "<strong>DAERAH: </strong>", kelmap_with_lep$DAERAH.x, "<br>",
+  "<strong>Leptospirosis Cases: </strong>", kelmap_with_lep$n
+)
+
+# Display the map with the custom popup
+mapView(kelmap_with_lep, zcol = "n", layer.name = "Count of Leptospirosis cases 2016", popup = popup_info)
+```
+
+### 8.3 Map the incidence of cases in 2016 for each Mukim
+
+```{r}
+kelmap_with_lep %>% ggplot() + 
+  geom_sf(aes(fill = incidence_lep)) +
+  ggtitle('Count of Leptospirosis 2016') + 
+  theme_bw() 
+
+# Create a custom popup with multiple fields
+popup_info_1<- paste0(
+  "<strong>MUKIM: </strong>", kelmap_with_lep$MUKIM.x, "<br>",
+  "<strong>DAERAH: </strong>", kelmap_with_lep$DAERAH.x, "<br>",
+  "<strong>Leptospirosis Incidence : </strong>", kelmap_with_lep$incidence_lep
+) 
+
+mapview(kelmap_with_lep,zcol = "incidence_lep", layer.name = "Incidence of  Leptospirosis cases 2016", popup = popup_info_1)
+```
+
+## 9.0 Spatial Autocorrelation
+
+Spatial autocorrelation is used to describe the extent to which a variable is correlated with itself through space. This concept is closely related to Tobler’s First Law of Geography, which states that “everything is related to everything else, but near things are more related than distant things” ([Tobler 1970](https://www.paulamoraga.com/book-spatial/references.html#ref-tobler70)). Positive spatial autocorrelation occurs when observations with similar values are closer together (i.e., clustered). Negative spatial autocorrelation occurs when observations with dissimilar values are closer together (i.e., dispersed). 
+
+### 9.1 Set Neighbouring Polygon for autocorrelation analysis (using QUEEN approach)
+
+Read data Leptospirosis for 2016
+
+```{r}
+linelist <- read_xlsx("leptospirosis.xlsx")
+LEP_kel16 <- filter(linelist, `Tahun Daftar` == "2016")
+```
+
+```{r}
+#Moran's I for leptospirosis 2016
+polyLEP_kel16 <- merge(kel_map, LEP_kel16, by = c("MUKIM"))
+count_lep16 <- polyLEP_kel16 %>% 
+  count(DAERAH, MUKIM, average) %>% 
+  ungroup()
+nb_lep16 <- poly2nb(count_lep16, queen = TRUE) #set neigbouring queen
+nb_lep16[[1]]
+```
+
+### 9.2 Assign Weight for Mukim that contribute to Case in observed mukim
+
+```{r}
+lw_lep16 <- nb2listw(nb_lep16, style = "W" , zero.policy = TRUE) #assign weight
+lep16_lag <- lag.listw(lw_lep16, count_lep16$n) #create lag function
+```
+
+### 9.3 Global Moran's I
+
+```{r}
+moran.test(count_lep16$n, lw_lep16)
+```
+
+### 9.4 Moran Plot
+
+```{r}
+moran.plot(count_lep16$n, lw_lep16, main = "Moran Plot for Leptospirosis 2016")
+```
+
+### 9.5 **Local Moran’s** I
+
+We have seen that the Global Moran’s II provides an index to assess the spatial autocorrelation for the whole study region. There is often interest in providing a local measure of similarity between each area’s value and those of nearby areas. Local Indicators of Spatial Association (LISA) ([Anselin 1995](https://www.paulamoraga.com/book-spatial/references.html#ref-anselin95)) are designed to provide an indication of the extent of significant spatial clustering of similar values around each observation. 
+
+Here, we use the [`localmoran()`](https://r-spatial.github.io/spdep/reference/localmoran.html) function to compute the Local Moran’s II for the housing prices data. We set `alternative = "greater"` which corresponds to testing H0H0: no or negative spatial autocorrelation vs. H1H1: positive spatial autocorrelation
+
+```{r}
+Local_Moran_lep16 <- localmoran(count_lep16$n,lw_lep16)
+LEP16_poly <- cbind(count_lep16, Local_Moran_lep16)
+```
+
+Then, we identify the clusters of each type by using the information provided by the Moran’s II scatterplot obtained with the [`moran.plot()`](https://r-spatial.github.io/spdep/reference/moran.plot.html) function 
+
+```{r}
+mp <- moran.plot(as.vector(scale(count_lep16$n)), lw_lep16)
+```
+
+We create the variable `quadrant` denoting the type of cluster for each of the areas using the quadrant corresponding to its value and its spatially lagged value, and the p-value. Specifically, areas with `quadrant` equal to 1, 2, 3, and 4 correspond to clusters of type high-high, low-low, high-low, and low-high, respectively. Areas with `quadrant` equal to 5 are non-significant.
+
+```{r}
+m_lep16 <- count_lep16$n - mean(count_lep16$n)# Center the variable of interest around its mean
+
+m_local_lep16 <- Local_Moran_lep16[,1]- mean(Local_Moran_lep16[,1]) #Center the local Moran around the mean
+
+
+signif <- 0.05 #significant threshold
+
+# builds a data quadrant
+quadrant_lep16 <- vector(mode="numeric",length = nrow(Local_Moran_lep16))
+quadrant_lep16 [m_lep16>0 & m_local_lep16>0] <- 4
+quadrant_lep16 [m_lep16<0 & m_local_lep16<0] <- 1
+quadrant_lep16 [m_lep16<0 & m_local_lep16>0] <- 2
+quadrant_lep16 [m_lep16>0 & m_local_lep16<0] <- 3
+quadrant_lep16 [Local_Moran_lep16[,5]] <- 0
+```
+
+### 9.6 Plot the LISA Map
+
+```{r}
+LISA_16 <- cbind(LEP16_poly, quadrant_lep16)
+```
+
+```{r}
+LISA_Map_16 <- tm_shape(kel_map) + #base map
+  tm_polygons(col = "#f7f7f7")+ 
+  tm_style("natural") + 
+tm_shape(LISA_16) +
+  tm_polygons(col = "quadrant_lep16", breaks = c(0,1,2,3,4,5), palette= 
+                              c("white", "blue","skyblue","lightpink","red"),labels = c("Non Significant","Low-Low","Low-High","High-Low", "High-High"), title="LISA 2016") +
+  tm_layout(legend.outside = TRUE)
+
+LISA_Map_16
+```
+
+```{r}
+# Define a color palette for the LISA quadrants
+colors <- c("blue", "skyblue", "lightpink", "red")
+
+# Plot the map using mapview
+LISA_Map_16_mapview <- mapview(LISA_16, 
+          zcol = "quadrant_lep16",  # column for color mapping
+          col.regions = colors,     # apply the color palette
+          legend = TRUE,            # display the legend
+          layer.name = "LISA 2016", # name of the layer in the viewer
+          at = c(0, 1, 2, 3, 4), # breaks for quadrants
+          labels = c("Non Significant", "Low-Low", "Low-High", "High-Low", "High-High"))
+
+# Display the map
+LISA_Map_16_mapview
+```
